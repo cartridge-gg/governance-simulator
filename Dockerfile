@@ -9,14 +9,13 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone and build Katana from dojo repo
-ENV DOJO_VERSION=v1.7.0
-RUN git clone --depth 1 --branch $DOJO_VERSION https://github.com/dojoengine/dojo.git /dojo
+# Clone katana from its dedicated repo (moved out of dojo monorepo)
+RUN git clone --depth 1 https://github.com/dojoengine/katana.git /katana
 
-WORKDIR /dojo
+WORKDIR /katana
 
-# Build only katana binary (faster than building everything)
-RUN cargo build --release --bin katana
+# Build katana binary
+RUN cargo build --release -p katana
 
 # Runtime stage
 FROM node:20-slim
@@ -28,7 +27,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Katana binary from builder
-COPY --from=katana-builder /dojo/target/release/katana /usr/local/bin/katana
+COPY --from=katana-builder /katana/target/release/katana /usr/local/bin/katana
 
 # Verify Katana installation
 RUN katana --version

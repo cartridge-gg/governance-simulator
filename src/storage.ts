@@ -92,14 +92,17 @@ export async function copyTokenBalance(
 ): Promise<TokenBalance> {
   // Read the source balance
   const balance = await readERC20Balance(katana, tokenAddress, fromAddress);
+  console.log(`Token ${tokenAddress}: read balance from ${fromAddress} = ${balance.balanceLow}/${balance.balanceHigh}`);
 
   // Skip if balance is zero
   if (balance.balanceLow === '0x0' && balance.balanceHigh === '0x0') {
+    console.log(`  Skipping - zero balance`);
     return balance;
   }
 
   // Compute destination keys
   const toKeys = computeERC20BalanceKey(toAddress);
+  console.log(`  Writing to ${toAddress} at keys ${toKeys.low}, ${toKeys.high}`);
 
   // Write to destination storage
   await katana.devSetStorageAt(tokenAddress, toKeys.low, balance.balanceLow);

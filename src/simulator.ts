@@ -255,12 +255,15 @@ export async function simulateProposal(
   const testAccount = devAccounts[0];
 
   // Copy timelock's token balances to test account
-  await copyAllTokenBalances(
+  console.log(`Copying balances from ${timelockAddress} to ${testAccount.address}`);
+  console.log(`Additional tokens: ${JSON.stringify(additionalTokens)}`);
+  const copiedBalances = await copyAllTokenBalances(
     katana,
     timelockAddress,
     testAccount.address,
     additionalTokens
   );
+  console.log('Copied balances:', JSON.stringify(Object.fromEntries(copiedBalances), null, 2));
 
   // Build multicall transaction
   const calldata = buildMulticallCalldata(calls);

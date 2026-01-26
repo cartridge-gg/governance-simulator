@@ -101,10 +101,7 @@ export function buildMulticallCalldata(calls: Call[]): string[] {
   // First element: number of calls
   calldata.push(num.toHex(calls.length));
 
-  // Each call: to, selector, calldata_offset, calldata_len
-  let dataOffset = 0;
-  const callDataArrays: string[][] = [];
-
+  // Each call: to, selector, calldata_len, calldata...
   for (const call of calls) {
     calldata.push(num.toHex(call.to));
 
@@ -117,19 +114,14 @@ export function buildMulticallCalldata(calls: Call[]): string[] {
     // Calldata length for this call
     calldata.push(num.toHex(call.calldata.length));
 
-    callDataArrays.push(call.calldata);
-    dataOffset += call.calldata.length;
-  }
-
-  // Append all calldata - ensure proper hex formatting
-  for (const data of callDataArrays) {
-    calldata.push(...data.map((d) => {
-      // If already a hex string, normalize it; otherwise convert
+    // Calldata for this call (inline, not at the end)
+    for (const d of call.calldata) {
       if (typeof d === 'string' && d.startsWith('0x')) {
-        return d;
+        calldata.push(d);
+      } else {
+        calldata.push(num.toHex(d));
       }
-      return num.toHex(d);
-    }));
+    }
   }
 
   return calldata;

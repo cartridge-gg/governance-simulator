@@ -45,12 +45,7 @@ COPY src ./src
 # Build TypeScript
 RUN npm run build
 
-# Expose API port
-EXPOSE 3001
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3001/health || exit 1
+# Railway sets PORT dynamically, app reads from process.env.PORT
 
 # Start the simulator
 CMD ["node", "dist/index.js"]

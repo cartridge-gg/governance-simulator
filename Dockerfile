@@ -23,15 +23,12 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm ci --only=production
-
 # Copy source code
 COPY tsconfig.json ./
 COPY src ./src
 
-# Build TypeScript
-RUN npm run build
+# Install all dependencies (including devDeps for tsc) and build
+RUN npm ci && npm run build && npm prune --production
 
 # Railway sets PORT dynamically, app reads from process.env.PORT
 

@@ -108,6 +108,11 @@ export async function copyTokenBalance(
   await katana.devSetStorageAt(tokenAddress, toKeys.low, balance.balanceLow);
   await katana.devSetStorageAt(tokenAddress, toKeys.high, balance.balanceHigh);
 
+  // Verify write succeeded
+  const verifyLow = await katana.getStorageAt(tokenAddress, toKeys.low);
+  const verifyHigh = await katana.getStorageAt(tokenAddress, toKeys.high);
+  console.log(`  Verified: ${verifyLow}/${verifyHigh} (expected: ${balance.balanceLow}/${balance.balanceHigh})`);
+
   return balance;
 }
 

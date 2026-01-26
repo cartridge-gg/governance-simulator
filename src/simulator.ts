@@ -121,9 +121,15 @@ export function buildMulticallCalldata(calls: Call[]): string[] {
     dataOffset += call.calldata.length;
   }
 
-  // Append all calldata
+  // Append all calldata - ensure proper hex formatting
   for (const data of callDataArrays) {
-    calldata.push(...data.map((d) => num.toHex(d)));
+    calldata.push(...data.map((d) => {
+      // If already a hex string, normalize it; otherwise convert
+      if (typeof d === 'string' && d.startsWith('0x')) {
+        return d;
+      }
+      return num.toHex(d);
+    }));
   }
 
   return calldata;
@@ -275,33 +281,28 @@ export async function simulateProposal(
 
   // Build INVOKE V3 transaction for simulation
   // Katana 1.7.0+ uses Starknet RPC 0.9.0 which requires V3 format
-  const simulationParams = {
-    block_id: 'latest',
-    transactions: [
-      {
-        type: 'INVOKE',
-        version: '0x3',
-        sender_address: testAccount.address,
-        calldata: calldata,
-        signature: [],
-        nonce: nonce,
-        resource_bounds: {
-          l1_gas: { max_amount: '0x0', max_price_per_unit: '0x0' },
-          l2_gas: { max_amount: '0x0', max_price_per_unit: '0x0' },
-        },
-        tip: '0x0',
-        paymaster_data: [],
-        account_deployment_data: [],
-        nonce_data_availability_mode: 'L1',
-        fee_data_availability_mode: 'L1',
-      },
-    ],
-    simulation_flags: ['SKIP_VALIDATE', 'SKIP_FEE_CHARGE'],
+  const transaction = {
+    type: 'INVOKE',
+    version: '0x3',
+    sender_address: testAccount.address,
+    calldata: calldata,
+    signature: [],
+    nonce: nonce,
+    resource_bounds: {
+      l1_gas: { max_amount: '0x0', max_price_per_unit: '0x0' },
+      l2_gas: { max_amount: '0x0', max_price_per_unit: '0x0' },
+    },
+    tip: '0x0',
+    paymaster_data: [],
+    account_deployment_data: [],
+    nonce_data_availability_mode: 'L1',
+    fee_data_availability_mode: 'L1',
   };
 
+  // Use positional params: [block_id, transactions, simulation_flags]
   const rawResult = await katana.rpcCall<RawSimulationResponse[]>(
     'starknet_simulateTransactions',
-    simulationParams
+    ['latest', [transaction], ['SKIP_VALIDATE', 'SKIP_FEE_CHARGE']]
   );
 
   if (!rawResult || rawResult.length === 0) {

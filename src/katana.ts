@@ -195,7 +195,9 @@ export class KatanaInstance {
     key: string,
     value: string
   ): Promise<void> {
-    await this.rpcCall('dev_setStorageAt', [contractAddress, key, value]);
+    console.log(`  devSetStorageAt(${contractAddress}, ${key}, ${value})`);
+    const result = await this.rpcCall('dev_setStorageAt', [contractAddress, key, value]);
+    console.log(`  devSetStorageAt result:`, result);
   }
 
   /**

@@ -1,0 +1,20 @@
+services:
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - HOST=0.0.0.0
+      # Default fork URL - can be overridden
+      - FORK_URL=https://api.cartridge.gg/x/starknet/mainnet
+    restart: unless-stopped
+    # Resource limits for Katana instances
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G

@@ -140,7 +140,7 @@ function parseInternalCall(raw: RawInternalCall): InternalCall {
     result: raw.result || [],
     calls: (raw.calls || []).map(parseInternalCall),
     events: (raw.events || []).map((e) => ({
-      contractAddress: e.from_address,
+      contractAddress: raw.contract_address,
       keys: e.keys,
       data: e.data,
     })),

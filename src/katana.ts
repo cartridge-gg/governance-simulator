@@ -94,7 +94,7 @@ export class KatanaInstance {
         });
 
         if (response.ok) {
-          const data = await response.json();
+          const data = (await response.json()) as { result?: unknown };
           if (data.result) {
             return;
           }
@@ -155,7 +155,7 @@ export class KatanaInstance {
   /**
    * Make an RPC call to Katana
    */
-  async rpcCall<T>(method: string, params: unknown[] = []): Promise<T> {
+  async rpcCall<T>(method: string, params: unknown = []): Promise<T> {
     const response = await fetch(this.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -171,7 +171,7 @@ export class KatanaInstance {
       throw new Error(`RPC call failed: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { result?: T; error?: unknown };
 
     if (data.error) {
       throw new Error(`RPC error: ${JSON.stringify(data.error)}`);

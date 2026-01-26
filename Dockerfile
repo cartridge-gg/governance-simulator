@@ -1,4 +1,4 @@
-# Build stage for Katana
+# Build stage for Katana - compile from source
 FROM rust:1.82-slim-bookworm AS katana-builder
 
 RUN apt-get update && apt-get install -y \
@@ -9,10 +9,14 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Katana 1.7.0 via dojoup
+# Clone and build Katana from dojo repo
 ENV DOJO_VERSION=v1.7.0
-RUN curl -L https://install.dojoengine.org | bash && \
-    /root/.dojo/bin/dojoup -v $DOJO_VERSION
+RUN git clone --depth 1 --branch $DOJO_VERSION https://github.com/dojoengine/dojo.git /dojo
+
+WORKDIR /dojo
+
+# Build only katana binary (faster than building everything)
+RUN cargo build --release --bin katana
 
 # Runtime stage
 FROM node:20-slim
@@ -24,7 +28,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Katana binary from builder
-COPY --from=katana-builder /root/.dojo/bin/katana /usr/local/bin/katana
+COPY --from=katana-builder /dojo/target/release/katana /usr/local/bin/katana
 
 # Verify Katana installation
 RUN katana --version

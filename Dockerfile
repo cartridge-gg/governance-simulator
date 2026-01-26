@@ -1,10 +1,13 @@
 # Runtime stage with pre-built Katana binary
-FROM node:20-slim
+# Using Ubuntu 24.04 for glibc 2.39 compatibility with katana binary
+FROM ubuntu:24.04
 
-# Install runtime dependencies
+# Install runtime dependencies and Node.js
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Download pre-built Katana binary

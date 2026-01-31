@@ -15,74 +15,52 @@ export const KNOWN_TOKENS = {
 };
 
 /**
- * Compute the storage key for an ERC20 balance using OpenZeppelin's storage layout
- *
- * OpenZeppelin Cairo uses: ERC20_balances: Map<ContractAddress, u256>
- * Storage layout: h(sn_keccak("ERC20_balances"), holder_address) for low part
- *                 h(sn_keccak("ERC20_balances"), holder_address) + 1 for high part
+ * Storage variable names used by different ERC20 implementations
  */
-export function computeERC20BalanceKey(holderAddress: string): { low: string; high: string } {
-  // Get selector for "ERC20_balances" storage variable
-  const selector = hash.getSelectorFromName('ERC20_balances');
-
-  // Normalize the holder address
-  const normalizedHolder = num.toHex(holderAddress);
-
-  // Compute the storage key using Pedersen hash
-  const baseKey = hash.computePedersenHash(selector, normalizedHolder);
-
-  // u256 uses 2 slots: base for low, base+1 for high
-  const baseKeyBigInt = BigInt(baseKey);
-  const highKey = '0x' + (baseKeyBigInt + 1n).toString(16);
-
-  return {
-    low: baseKey,
-    high: highKey,
-  };
-}
+const BALANCE_VARIABLE_NAMES = [
+  'ERC20_balances',  // OpenZeppelin standard
+  'balances',        // Some custom implementations
+];
 
 /**
- * Alternative ERC20 storage layout used by some contracts
- * Uses "balances" instead of "ERC20_balances"
+ * Compute storage key for a given variable name and holder
  */
-export function computeAltERC20BalanceKey(holderAddress: string): { low: string; high: string } {
-  const selector = hash.getSelectorFromName('balances');
+function computeBalanceKey(variableName: string, holderAddress: string): { low: string; high: string } {
+  const selector = hash.getSelectorFromName(variableName);
   const normalizedHolder = num.toHex(holderAddress);
   const baseKey = hash.computePedersenHash(selector, normalizedHolder);
   const highKey = '0x' + (BigInt(baseKey) + 1n).toString(16);
-
   return { low: baseKey, high: highKey };
 }
 
 /**
- * Read the ERC20 balance of an address from storage
+ * Call balanceOf on a token contract via starknet_call
+ * Returns the balance as {low, high} u256 parts
  */
-export async function readERC20Balance(
+async function callBalanceOf(
   katana: KatanaInstance,
   tokenAddress: string,
   holderAddress: string
-): Promise<TokenBalance> {
-  const keys = computeERC20BalanceKey(holderAddress);
-
-  let balanceLow = await katana.getStorageAt(tokenAddress, keys.low);
-  let balanceHigh = await katana.getStorageAt(tokenAddress, keys.high);
-
-  // If balance is 0, try alternative storage layout
-  if (balanceLow === '0x0' && balanceHigh === '0x0') {
-    const altKeys = computeAltERC20BalanceKey(holderAddress);
-    balanceLow = await katana.getStorageAt(tokenAddress, altKeys.low);
-    balanceHigh = await katana.getStorageAt(tokenAddress, altKeys.high);
-  }
+): Promise<{ low: string; high: string }> {
+  const balanceOfSelector = hash.getSelectorFromName('balance_of');
+  const result = await katana.rpcCall<string[]>('starknet_call', [
+    {
+      contract_address: tokenAddress,
+      entry_point_selector: balanceOfSelector,
+      calldata: [num.toHex(holderAddress)],
+    },
+    'latest',
+  ]);
 
   return {
-    tokenAddress,
-    balanceLow,
-    balanceHigh,
+    low: result[0] || '0x0',
+    high: result[1] || '0x0',
   };
 }
 
 /**
- * Copy an ERC20 token balance from one address to another
+ * Copy an ERC20 token balance from one address to another.
+ * Uses balanceOf to verify the correct storage layout.
  */
 export async function copyTokenBalance(
   katana: KatanaInstance,
@@ -90,30 +68,41 @@ export async function copyTokenBalance(
   fromAddress: string,
   toAddress: string
 ): Promise<TokenBalance> {
-  // Read the source balance
-  const balance = await readERC20Balance(katana, tokenAddress, fromAddress);
-  console.log(`Token ${tokenAddress}: read balance from ${fromAddress} = ${balance.balanceLow}/${balance.balanceHigh}`);
+  // Get actual balance via balanceOf RPC call
+  const actualBalance = await callBalanceOf(katana, tokenAddress, fromAddress);
+  console.log(`Token ${tokenAddress}: balanceOf(${fromAddress}) = ${actualBalance.low}/${actualBalance.high}`);
 
   // Skip if balance is zero
-  if (balance.balanceLow === '0x0' && balance.balanceHigh === '0x0') {
+  if (actualBalance.low === '0x0' && actualBalance.high === '0x0') {
     console.log(`  Skipping - zero balance`);
-    return balance;
+    return { tokenAddress, balanceLow: '0x0', balanceHigh: '0x0' };
   }
 
-  // Compute destination keys
-  const toKeys = computeERC20BalanceKey(toAddress);
-  console.log(`  Writing to ${toAddress} at keys ${toKeys.low}, ${toKeys.high}`);
+  // Try each storage variable name until balanceOf confirms the write worked
+  for (const varName of BALANCE_VARIABLE_NAMES) {
+    const toKeys = computeBalanceKey(varName, toAddress);
+    console.log(`  Trying "${varName}" - writing to keys ${toKeys.low}, ${toKeys.high}`);
 
-  // Write to destination storage
-  await katana.devSetStorageAt(tokenAddress, toKeys.low, balance.balanceLow);
-  await katana.devSetStorageAt(tokenAddress, toKeys.high, balance.balanceHigh);
+    // Write balance to destination
+    await katana.devSetStorageAt(tokenAddress, toKeys.low, actualBalance.low);
+    await katana.devSetStorageAt(tokenAddress, toKeys.high, actualBalance.high);
 
-  // Verify write succeeded
-  const verifyLow = await katana.getStorageAt(tokenAddress, toKeys.low);
-  const verifyHigh = await katana.getStorageAt(tokenAddress, toKeys.high);
-  console.log(`  Verified: ${verifyLow}/${verifyHigh} (expected: ${balance.balanceLow}/${balance.balanceHigh})`);
+    // Verify with balanceOf
+    const verifyBalance = await callBalanceOf(katana, tokenAddress, toAddress);
+    console.log(`  Verified balanceOf(${toAddress}) = ${verifyBalance.low}/${verifyBalance.high}`);
 
-  return balance;
+    if (verifyBalance.low === actualBalance.low && verifyBalance.high === actualBalance.high) {
+      console.log(`  Success with "${varName}"`);
+      return { tokenAddress, balanceLow: actualBalance.low, balanceHigh: actualBalance.high };
+    }
+
+    // Reset the failed write
+    await katana.devSetStorageAt(tokenAddress, toKeys.low, '0x0');
+    await katana.devSetStorageAt(tokenAddress, toKeys.high, '0x0');
+  }
+
+  console.warn(`  Could not determine storage layout for token ${tokenAddress}`);
+  return { tokenAddress, balanceLow: actualBalance.low, balanceHigh: actualBalance.high };
 }
 
 /**
@@ -156,22 +145,6 @@ export async function copyAllTokenBalances(
   }
 
   return results;
-}
-
-/**
- * Copy arbitrary storage slots from one contract to another
- * Useful for copying custom contract state beyond just token balances
- */
-export async function copyStorageSlots(
-  katana: KatanaInstance,
-  fromContract: string,
-  toContract: string,
-  storageKeys: string[]
-): Promise<void> {
-  for (const key of storageKeys) {
-    const value = await katana.getStorageAt(fromContract, key);
-    await katana.devSetStorageAt(toContract, key, value);
-  }
 }
 
 /**

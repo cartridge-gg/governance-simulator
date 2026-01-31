@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Download pre-built Katana binary
-ENV KATANA_VERSION=v1.7.0
+ENV KATANA_VERSION=v1.7.1
 RUN curl -L https://github.com/dojoengine/katana/releases/download/${KATANA_VERSION}/katana_${KATANA_VERSION}_linux_amd64.tar.gz | tar xz -C /usr/local/bin
 
 # Verify Katana installation

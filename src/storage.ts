@@ -1,6 +1,6 @@
 import { hash, num } from 'starknet';
 import type { KatanaInstance } from './katana.js';
-import type { TokenBalance } from './types.js';
+import type { TokenBalance, Call } from './types.js';
 
 /**
  * Well-known token addresses on Starknet mainnet
@@ -155,4 +155,196 @@ export function formatU256Balance(balanceLow: string, balanceHigh: string): stri
   const high = BigInt(balanceHigh);
   const value = (high << 128n) + low;
   return value.toString();
+}
+
+// ─── ERC721 ownership copying ───────────────────────────────────────────────
+
+/**
+ * Storage variable names used by different ERC721 implementations for owner mapping
+ */
+const ERC721_OWNER_VARIABLE_NAMES = [
+  'ERC721_owners',  // OpenZeppelin standard
+  'owners',         // Some custom implementations
+];
+
+/**
+ * Compute storage key for ERC721 owner mapping.
+ * ERC721_owners is Map<u256, ContractAddress>.
+ * u256 key uses 2 felts: h(h(selector, token_id_low), token_id_high)
+ */
+function computeErc721OwnerKey(
+  variableName: string,
+  tokenIdLow: string,
+  tokenIdHigh: string
+): string {
+  const selector = hash.getSelectorFromName(variableName);
+  const key1 = hash.computePedersenHash(selector, tokenIdLow);
+  const key2 = hash.computePedersenHash(key1, tokenIdHigh);
+  return key2;
+}
+
+/**
+ * Call owner_of on an ERC721 contract
+ */
+async function callOwnerOf(
+  katana: KatanaInstance,
+  contractAddress: string,
+  tokenIdLow: string,
+  tokenIdHigh: string
+): Promise<string> {
+  const ownerOfSelector = hash.getSelectorFromName('owner_of');
+  const result = await katana.rpcCall<string[]>('starknet_call', [
+    {
+      contract_address: contractAddress,
+      entry_point_selector: ownerOfSelector,
+      calldata: [tokenIdLow, tokenIdHigh],
+    },
+    'latest',
+  ]);
+  return result[0] || '0x0';
+}
+
+/**
+ * Copy ERC721 ownership of a specific token ID to a new owner.
+ * Uses owner_of to verify the correct storage layout.
+ */
+async function copyNftOwnership(
+  katana: KatanaInstance,
+  contractAddress: string,
+  tokenIdLow: string,
+  tokenIdHigh: string,
+  newOwner: string
+): Promise<boolean> {
+  // Verify the token exists and has an owner
+  const currentOwner = await callOwnerOf(katana, contractAddress, tokenIdLow, tokenIdHigh);
+  if (currentOwner === '0x0') {
+    console.log(`  NFT ${contractAddress} #${tokenIdLow} has no owner, skipping`);
+    return false;
+  }
+
+  console.log(`  NFT ${contractAddress} #${tokenIdLow}: current owner = ${currentOwner}`);
+
+  for (const varName of ERC721_OWNER_VARIABLE_NAMES) {
+    const ownerKey = computeErc721OwnerKey(varName, tokenIdLow, tokenIdHigh);
+    console.log(`  Trying "${varName}" - writing owner at key ${ownerKey}`);
+
+    await katana.devSetStorageAt(contractAddress, ownerKey, num.toHex(newOwner));
+
+    // Verify with owner_of
+    const verifiedOwner = await callOwnerOf(katana, contractAddress, tokenIdLow, tokenIdHigh);
+    if (num.toHex(verifiedOwner) === num.toHex(newOwner)) {
+      console.log(`  Success with "${varName}"`);
+      return true;
+    }
+
+    // Reset failed write
+    await katana.devSetStorageAt(contractAddress, ownerKey, num.toHex(currentOwner));
+  }
+
+  console.warn(`  Could not determine ERC721 storage layout for ${contractAddress}`);
+  return false;
+}
+
+/**
+ * Known ERC721 selectors that reference token IDs in their calldata
+ */
+const ERC721_SELECTORS = {
+  transfer_from: hash.getSelectorFromName('transfer_from'),
+  safe_transfer_from: hash.getSelectorFromName('safe_transfer_from'),
+  // transferFrom (camelCase variant)
+  transferFrom: hash.getSelectorFromName('transferFrom'),
+  safeTransferFrom: hash.getSelectorFromName('safeTransferFrom'),
+  approve: hash.getSelectorFromName('approve'),
+};
+
+/**
+ * Extract NFT token IDs referenced in proposal calls that the timelock needs to own.
+ * Scans calls for ERC721 transfer/approve patterns and extracts contract + token ID.
+ */
+function extractNftTokenIds(
+  calls: Call[],
+  timelockAddress: string
+): Array<{ contractAddress: string; tokenIdLow: string; tokenIdHigh: string }> {
+  const results: Array<{ contractAddress: string; tokenIdLow: string; tokenIdHigh: string }> = [];
+  const normalizedTimelock = num.toHex(timelockAddress);
+
+  for (const call of calls) {
+    const selector = call.selector.startsWith('0x')
+      ? call.selector
+      : hash.getSelectorFromName(call.selector);
+    const normalizedSelector = num.toHex(selector);
+
+    // transfer_from(from, to, token_id_low, token_id_high)
+    // safe_transfer_from(from, to, token_id_low, token_id_high, ...)
+    if (
+      normalizedSelector === num.toHex(ERC721_SELECTORS.transfer_from) ||
+      normalizedSelector === num.toHex(ERC721_SELECTORS.safe_transfer_from) ||
+      normalizedSelector === num.toHex(ERC721_SELECTORS.transferFrom) ||
+      normalizedSelector === num.toHex(ERC721_SELECTORS.safeTransferFrom)
+    ) {
+      if (call.calldata.length >= 4) {
+        const from = num.toHex(call.calldata[0]);
+        // Only copy if the timelock is the sender
+        if (from === normalizedTimelock) {
+          results.push({
+            contractAddress: call.to,
+            tokenIdLow: num.toHex(call.calldata[2]),
+            tokenIdHigh: num.toHex(call.calldata[3]),
+          });
+        }
+      }
+    }
+
+    // approve(to, token_id_low, token_id_high)
+    if (normalizedSelector === num.toHex(ERC721_SELECTORS.approve)) {
+      if (call.calldata.length >= 3) {
+        results.push({
+          contractAddress: call.to,
+          tokenIdLow: num.toHex(call.calldata[1]),
+          tokenIdHigh: num.toHex(call.calldata[2]),
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Copy ERC721 ownership for any NFTs referenced in proposal calls
+ * that the timelock needs to own for the simulation to succeed.
+ */
+export async function copyNftOwnerships(
+  katana: KatanaInstance,
+  timelockAddress: string,
+  toAddress: string,
+  calls: Call[]
+): Promise<number> {
+  const nfts = extractNftTokenIds(calls, timelockAddress);
+  if (nfts.length === 0) {
+    return 0;
+  }
+
+  console.log(`Found ${nfts.length} NFT(s) to copy ownership for`);
+  let copied = 0;
+
+  for (const nft of nfts) {
+    try {
+      const success = await copyNftOwnership(
+        katana,
+        nft.contractAddress,
+        nft.tokenIdLow,
+        nft.tokenIdHigh,
+        toAddress
+      );
+      if (success) copied++;
+    } catch (error) {
+      console.warn(
+        `Failed to copy NFT ownership for ${nft.contractAddress} #${nft.tokenIdLow}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
+  return copied;
 }

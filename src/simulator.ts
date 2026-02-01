@@ -1,6 +1,6 @@
 import { hash, num, CallData } from 'starknet';
 import type { KatanaInstance } from './katana.js';
-import { copyAllTokenBalances } from './storage.js';
+import { copyAllTokenBalances, copyNftOwnerships } from './storage.js';
 import type {
   Call,
   SimulationResult,
@@ -264,6 +264,12 @@ export async function simulateProposal(
     additionalTokens
   );
   console.log('Copied balances:', JSON.stringify(Object.fromEntries(copiedBalances), null, 2));
+
+  // Copy ERC721 ownership for any NFTs referenced in proposal calls
+  const nftsCopied = await copyNftOwnerships(katana, timelockAddress, testAccount.address, calls);
+  if (nftsCopied > 0) {
+    console.log(`Copied ownership for ${nftsCopied} NFT(s)`);
+  }
 
   // Build multicall transaction
   const calldata = buildMulticallCalldata(calls);

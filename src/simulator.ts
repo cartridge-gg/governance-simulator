@@ -1,6 +1,6 @@
 import { hash, num, CallData } from 'starknet';
 import type { KatanaInstance } from './katana.js';
-import { copyAllTokenBalances, copyNftOwnerships } from './storage.js';
+import { copyAllTokenBalances, copyNftOwnerships, extractTokenAddresses } from './storage.js';
 import type {
   Call,
   SimulationResult,
@@ -254,14 +254,18 @@ export async function simulateProposal(
 
   const testAccount = devAccounts[0];
 
+  // Extract token addresses referenced in proposal calls
+  const callTokens = extractTokenAddresses(calls);
+  const allAdditionalTokens = [...new Set([...additionalTokens, ...callTokens])];
+
   // Copy timelock's token balances to test account
   console.log(`Copying balances from ${timelockAddress} to ${testAccount.address}`);
-  console.log(`Additional tokens: ${JSON.stringify(additionalTokens)}`);
+  console.log(`Tokens from calls: ${JSON.stringify(callTokens)}`);
   const copiedBalances = await copyAllTokenBalances(
     katana,
     timelockAddress,
     testAccount.address,
-    additionalTokens
+    allAdditionalTokens
   );
   console.log('Copied balances:', JSON.stringify(Object.fromEntries(copiedBalances), null, 2));
 

@@ -12,6 +12,8 @@ export const KNOWN_TOKENS = {
   USDT: '0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8',
   DAI: '0x00da114221cb83fa859dbdb4c44beeaa0bb37c7537ad5ae66fe5e0efd20e6eb3',
   WBTC: '0x03fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac',
+  LORDS: '0x0124aeb495b947201f5fac96fd1138e326ad86195b98df6dec9009158a533b49',
+  SURVIVOR: '0x042dd777885ad2c116be96d4d634abc90a26a790ffb5871e037dd5ae7d2ec86b',
 };
 
 /**
@@ -243,6 +245,42 @@ async function copyNftOwnership(
 
   console.warn(`  Could not determine ERC721 storage layout for ${contractAddress}`);
   return false;
+}
+
+/**
+ * Known ERC20 selectors - calls to these imply the target is a token contract
+ */
+const ERC20_SELECTORS = new Set([
+  hash.getSelectorFromName('transfer'),
+  hash.getSelectorFromName('transfer_from'),
+  hash.getSelectorFromName('transferFrom'),
+  hash.getSelectorFromName('approve'),
+  hash.getSelectorFromName('increase_allowance'),
+  hash.getSelectorFromName('decrease_allowance'),
+  hash.getSelectorFromName('increaseAllowance'),
+  hash.getSelectorFromName('decreaseAllowance'),
+].map(s => num.toHex(s)));
+
+/**
+ * Extract token contract addresses from proposal calls.
+ * Any call whose selector matches a known ERC20 function is assumed
+ * to target a token contract whose balance the timelock may need.
+ */
+export function extractTokenAddresses(calls: Call[]): string[] {
+  const addresses = new Set<string>();
+
+  for (const call of calls) {
+    const selector = call.selector.startsWith('0x')
+      ? call.selector
+      : hash.getSelectorFromName(call.selector);
+    const normalizedSelector = num.toHex(selector);
+
+    if (ERC20_SELECTORS.has(normalizedSelector)) {
+      addresses.add(call.to);
+    }
+  }
+
+  return [...addresses];
 }
 
 /**

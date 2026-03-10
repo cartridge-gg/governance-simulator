@@ -5,12 +5,17 @@ import { KatanaInstance, findAvailablePort } from './katana.js';
 import { simulateProposal, decodeRevertReason } from './simulator.js';
 import type { SimulateRequest, SimulateResponse, SimulationResult } from './types.js';
 
-const DEFAULT_FORK_URL = process.env.FORK_URL || 'https://api.cartridge.gg/x/starknet/mainnet';
+const DEFAULT_FORK_URL = process.env.FORK_URL || 'https://api.cartridge.gg/x/starknet/sepolia';
 
 // CORS configuration
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:5173']; // Default dev origins
+  : [
+      'http://localhost:3000',
+      'https://localhost:3000',
+      'http://localhost:5173',
+      'https://localhost:5173',
+    ]; // Default dev origins
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {

@@ -65,13 +65,15 @@ npm run build && npm start
 
 ### GHCR Image
 
-GitHub Actions can publish the simulator image to:
+GitHub Actions publishes the simulator image to:
 
-- `ghcr.io/cartridge-gg/governance-simulator:latest`
+- `ghcr.io/<repo-owner>/governance-simulator:latest`
+
+For the canonical repository, that resolves to `ghcr.io/cartridge-gg/governance-simulator:latest`.
 
 Version tags and immutable `sha-...` tags are also produced by the workflow.
 
-Example run command:
+Example run command for the current Sepolia-oriented setup:
 
 ```bash
 docker run -d \
@@ -80,7 +82,7 @@ docker run -d \
   -e PORT=3001 \
   -e HOST=0.0.0.0 \
   -e FORK_URL=https://api.cartridge.gg/x/starknet/sepolia \
-  ghcr.io/cartridge-gg/governance-simulator:latest
+  ghcr.io/<repo-owner>/governance-simulator:latest
 ```
 
 The server runs on port 3001 by default. Set the `PORT` environment variable to change it.
